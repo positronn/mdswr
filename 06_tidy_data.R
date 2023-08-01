@@ -152,3 +152,6 @@ BP_nested |>
 BP_nested |> 
     unnest(cols = c(sbp_list, sbp_mean))
 # This computation gives the correct mean blood pressure for each subject at each time point.
+# On the other hand, an application of unnest() to the sbp_list variable, which has more than one observation for each row, results in a data frame with one row for each observed subject on a specific date. This transforms the data back into the same unit of observation as BP_full.
+BP_nested |> 
+    unnest(cols = c(sbp_list))

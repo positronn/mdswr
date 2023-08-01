@@ -305,7 +305,7 @@ bmi_plot <- function(.data, x_var) {
         geom_jitter(alpha = 0.3) +
         geom_smooth() +
         labs(
-            title = paste('BMI by', aes(x_var)),
+            title = paste('BMI by', x_var),
             subtitle = 'NHANES',
             caption = 'US National Center for Health Statistics (NCHS)'
         )
@@ -318,3 +318,9 @@ bmi_plot <- function(.data, x_var) {
 
 # We can then call our function on a specific variable.
 bmi_plot(NHANES, "Age")
+
+# Or, we can specify a set of variables and then map() over that set. Since map() always returns a list, and a list of plots is not that useful, we use the wrap_plots() function from the patchwork package to combine the resulting list of plots into one image.
+c("Age", "HHIncomeMid", "PhysActiveDays", 
+  "TVHrsDay", "AlcoholDay", "Pulse") |>
+    map(bmi_plot, .data = NHANES) |>
+    patchwork::wrap_plots(ncol = 2)
