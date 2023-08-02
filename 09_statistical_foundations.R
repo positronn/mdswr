@@ -132,3 +132,101 @@ sf_25_means |>
 # Both sampling distributions are centered at the same value.
 # A larger sample size produces a standard error that is smaller. That is, a larger sample size is more reliable than a smaller sample size.
 # For large sample sizes, the shape of the sampling distribution tends to bell-shaped. In a bit of archaic terminology, this shape is often called the normal distribution. Indeed, the distribution arises very frequently in statistics, but there is nothing abnormal about any other distribution shape. 
+
+
+
+# 9.3 The bootstrap
+# In the previous examples, we had access to the population data and so we could find the sampling distribution by repeatedly sampling from the population. In practice, however, we have only one sample and not the entire population. The bootstrap is a statistical method that allows us to approximate the sampling distribution even without access to the population.
+# The logical leap involved in the bootstrap is to think of our sample itself as if it were the population. Just as in the previous examples we drew many samples from the population, now we will draw many new samples from our original sample. This process is called resampling: drawing a new sample from an existing sample.
+three_flights <- SF |>
+    slice_sample(n = 3, replace = FALSE) |>
+    select(year, month, day, dep_time)
+three_flights
+
+three_flights |>
+    slice_sample(n = 3, replace = TRUE)
+
+three_flights |>
+    slice_sample(n = 3, replace = TRUE)
+
+
+# Let’s use bootstrapping to estimate the reliability of the mean arrival time calculated on a sample of size 200. (Ordinarily this is all we get to observe about the population.)
+n <- 200
+orig_sample <- SF |> 
+    slice_sample(n = n,
+                 replace = FALSE)
+# Now, with this sample in hand, we can draw a resample (of that sample size) and calculate the mean arrival delay.
+orig_sample |> 
+    slice_sample(n = n, replace = TRUE) |> 
+    summarize(mean_arr_delay = mean(arr_delay))
+
+# By repeating this process many times, we’ll be able to see how much variation there is from sample to sample: 
+sf_200_bs <- 1:trials |> 
+    map(
+        ~ orig_sample |> 
+            slice_sample(n = n, replace = TRUE) |> 
+            summarize(mean_arr_delay = mean(arr_delay))
+    ) |> 
+    list_rbind() |> 
+    mutate(n = n)
+
+sf_200_bs |> 
+    skim(mean_arr_delay)
+# Ordinarily, we wouldn’t be able to check this result. But because we have access to the population data in this example, we can. Let’s compare our bootstrap estimate to a set of (hypothetical) samples of size from the original SF flights (the population).
+# size n = 200
+sf_200_pop <- 1:trials |> 
+    map(
+        ~ SF |> 
+            slice_sample(n = n, replace = TRUE) |> 
+            summarize(mean_arr_delay = mean(arr_delay))
+    ) |> 
+    list_rbind() |> 
+    mutate(n = n)
+
+sf_200_pop |> 
+    skim(mean_arr_delay)
+# Notice that the population was not used in the bootstrap (sf_200_bs), just the original sample. What’s remarkable here is that the standard error calculated using the bootstrap (3.1 minutes) is a reasonable approximation to the standard error of the sampling distribution calculated by taking repeated samples from the population (3.3 minutes).
+# The distribution of values in the bootstrap trials is called the bootstrap distribution. It’s not exactly the same as the sampling distribution, but for moderate to large sample sizes and sufficient number of bootstraps it has been proven to approximate those aspects of the sampling distribution that we care most about, such as the standard error and quantiles
+
+# 9.3.1 Example: Setting travel policy
+orig_sample |>
+    summarize(q98 = quantile(arr_delay, p = 0.98))
+
+# We can check the reliability of that estimate using bootstrapping. 
+n <- nrow(orig_sample)
+sf_200_bs <- 1:trials |>
+    map(
+        ~ orig_sample |>
+            slice_sample(n = n, replace = TRUE) |>
+            summarize(q98 = quantile(arr_delay, p = 0.98))
+    ) |> 
+    list_rbind() 
+
+sf_200_bs |>
+    skim(q98)
+# The bootstrapped standard error is about 48 minutes.
+# The corresponding 95% confidence interval is 152 +- 96  minutes.
+# A policy based on this would be practically a shot in the dark: unlikely to hit the target.
+
+# One way to fix things might be to collect more data, hoping to get a more reliable estimate of the percentile. Imagine that we could do the work to generate a sample with cases.
+set.seed(1001)
+n_large <- 10000
+sf_10000_bs <- SF |> 
+    slice_sample(n = n_large, replace = FALSE)
+
+sf_200_bs <- 1:trials |> 
+    map(
+        ~ sf_10000_bs |> 
+            slice_sample(n = n_large, replace = TRUE) |> 
+            summarize(q98 = quantile(arr_delay, p = 0.98))
+    ) |> 
+    list_rbind()
+
+sf_200_bs |> 
+    skim(q98)
+# The standard deviation is much narrower, 154 +- 8 minutes.
+# Having more data makes it easier to better refine estimates,
+# particularly in the tails.
+
+
+# 9.4 Outliers
