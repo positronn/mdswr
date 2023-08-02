@@ -230,3 +230,96 @@ sf_200_bs |>
 
 
 # 9.4 Outliers
+# One place where more data is helpful is in identifying unusual or extreme events: outliers. Suppose we consider any flight delayed by 7 hours (420 minutes) or more as an extreme event (see Section 15.5). While an arbitrary choice, 420 minutes may be valuable as a marker for seriously delayed flights.
+SF |> 
+    filter(arr_delay >= 420) |> 
+    select(month, day, dep_delay, arr_delay, carrier)
+
+# Most of the very long delays (five of seven) were in July, and Virgin America (VX) is the most frequent offender. Immediately, this suggests one possible route for improving the outcome of the business travel policy we have been asked to develop. We could tell people to arrive extra early in July and to avoid VX.
+# But let’s not rush into this. The outliers themselves may be misleading. These outliers account for a tiny fraction of the flights into San Francisco from New York in 2013. That’s a small component of our goal of having a failure rate of 2% in getting to meetings on time. And there was an even more extremely rare event at SFO in July 2013: the crash-landing of Asiana Airlines flight 214. We might remove these points to get a better sense of the main part of the distribution.
+SF |> 
+    filter(arr_delay < 420) |> 
+    ggplot(mapping = aes(x = arr_delay)) +
+    geom_histogram(binwidth = 15) +
+    labs(x = 'Arrival delay (in minutes)')
+
+# Note that the large majority of flights arrive without any delay or a delay of less than 60 minutes. Might we be able to identify patterns that can presage when the longer delays are likely to occur? The outliers suggested that month or carrier may be linked to long delays. Let’s see how that plays out with the large majority of data. 
+SF |> 
+    mutate(long_delay = arr_delay > 60) |> 
+    group_by(month, long_delay) |> 
+    count() |> 
+    pivot_wider(names_from = month, values_from = n) |> 
+    tibble()
+
+# We see that June and July (months 6 and 7) are problem months.
+SF |> 
+    mutate(long_delay = arr_delay > 60) |> 
+    group_by(carrier, long_delay) |> 
+    count() |> 
+    pivot_wider(names_from = carrier, values_from = n) |> 
+    tibble()
+
+# Delta Airlines (DL) has reasonable performance. These two simple analyses hint at a policy that might advise travelers to plan to arrive extra early in June and July and to consider Delta as an airline for travel to SFO (see Section 15.5 for more discussion of which airlines seem to have fewer delays in general).
+
+# 9.5 Statistical models: Explaining variation
+# In the previous section, we used month of the year and airline to narrow down the situations in which the risk of an unacceptable flight delay is large. Another way to think about this is that we are explaining part of the variation in arrival delay from flight to flight.
+# Statistical modeling provides a way to relate variables to one another. Doing so helps us better understand the system we are studying.
+#  To illustrate modeling, let’s consider another question from the airline delays data set: What impact, if any, does scheduled time of departure have on expected flight delay? Many people think that earlier flights are less likely to be delayed, since flight delays tend to cascade over the course of the day. Is this theory supported by the data?
+# We first begin by considering time of day. In the nycflights13 package, the flights data frame has a variable (hour) that specifies the scheduled hour of departure.
+SF |> 
+    group_by(hour) |> 
+    count() |> 
+    pivot_wider(names_from = hour, values_from = n) |> 
+    tibble()
+
+SF |> 
+    group_by(hour) |> 
+    count() |> 
+    ggplot(mapping = aes(x = factor(hour), y = n)) +
+    geom_bar(stat = 'identity') +
+    xlab('Hour') +
+    ylab('Number of flights')
+
+SF |> 
+    filter(arr_delay > 60) |> 
+    group_by(hour) |> 
+    count() |> 
+    ggplot(mapping = aes(x = factor(hour), y = n)) +
+    geom_bar(stat = 'identity') +
+    xlab('Scheduled hour of departure') +
+    ylab('Number of flights with delay') +
+    ggtitle('Delays > 60 mins by Hour')
+
+
+# Let’s examine how the arrival delay depends on the hour. We’ll do this in two ways: first using standard box-and-whisker plots to show the distribution of arrival delays; second with a kind of statistical model called a linear model that lets us track the mean arrival delay over the course of the day. 
+SF |> 
+    ggplot(aes(x = hour, y = arr_delay)) +
+    geom_boxplot(alpha = 0.1, aes(group = hour)) +
+    geom_smooth(method = 'lm', formula = y ~ x) +
+    geom_smooth(method = 'lm', formula = y ~ x + I(x**2), color = 'darkred') +
+    xlab('Scheduled hour of departure') +
+    ylab("Arrival delay (minutes)") + 
+    coord_cartesian(ylim = c(-30, 120)) 
+
+# creating a model
+mod1 <- lm(arr_delay ~ hour, data = SF)
+broom::tidy(mod1)
+
+mod2 <- lm(arr_delay ~ hour + I(hour ** 2), data = SF)
+broom::tidy(mod2)
+
+
+# Can we do better? What additional factors might help to explain flight delays? Let’s look at departure airport, carrier (airline), month of the year, and day of the week. Some wrangling will let us extract the day of the week (dow) from the year, month, and day of month. We’ll also create a variable season that summarizes what we already know about the month: that June and July are the months with long delays. These will be used as explanatory variables to account for the response variable: arrival delay.
+library(lubridate)
+SF <- SF |> 
+    mutate(day = as_date(time_hour),
+           dow = as.character(wday(day, label = TRUE)),
+           season = if_else(month %in% 6:7, 'summer', 'other month'))
+
+# Now we can build a model that includes variables we want to use to explain arrival delay.
+mod3 <- lm(arr_delay ~ hour + origin + carrier + season + dow, data = SF)
+broom::tidy(mod3)
+
+# The numbers in the “estimate” column tell us that we should add 4.1 minutes to the average delay if departing from JFK (instead of EWR, also known as Newark, which is the reference group). Delta has a better average delay than the other carriers. Delays are on average longer in June and July (by 25 minutes), and on Sundays (by 5 minutes). Recall that the Aviana crash was in July.
+# The model also indicates that Sundays are associated with roughly 5 minutes of additional delays; Saturdays are 6 minutes less delayed on average. (Each of the days of the week is being compared to Friday, chosen as the reference group because it comes first alphabetically.) The standard errors tell us the precision of these estimates; the p-values describe whether the individual patterns are consistent with what might be expected to occur by accident even if there were no systemic association between the variables.
+# In this example, we’ve used lm() to construct what are called linear models. Linear models describe how the mean of the response variable varies with the explanatory variables. They are the most widely used statistical modeling technique, but there are others. In particular, since our original motivation was to set a policy about business travel, we might want a modeling technique that lets us look at another question: What is the probability that a flight will be, say, greater than 100 minutes late? Without going into detail, we’ll mention that a technique called logistic regression 
