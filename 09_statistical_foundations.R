@@ -323,3 +323,95 @@ broom::tidy(mod3)
 # The numbers in the “estimate” column tell us that we should add 4.1 minutes to the average delay if departing from JFK (instead of EWR, also known as Newark, which is the reference group). Delta has a better average delay than the other carriers. Delays are on average longer in June and July (by 25 minutes), and on Sundays (by 5 minutes). Recall that the Aviana crash was in July.
 # The model also indicates that Sundays are associated with roughly 5 minutes of additional delays; Saturdays are 6 minutes less delayed on average. (Each of the days of the week is being compared to Friday, chosen as the reference group because it comes first alphabetically.) The standard errors tell us the precision of these estimates; the p-values describe whether the individual patterns are consistent with what might be expected to occur by accident even if there were no systemic association between the variables.
 # In this example, we’ve used lm() to construct what are called linear models. Linear models describe how the mean of the response variable varies with the explanatory variables. They are the most widely used statistical modeling technique, but there are others. In particular, since our original motivation was to set a policy about business travel, we might want a modeling technique that lets us look at another question: What is the probability that a flight will be, say, greater than 100 minutes late? Without going into detail, we’ll mention that a technique called logistic regression 
+
+
+# 9.6 Confounding and accounting for other factors
+# There are many times when correlations do imply causal relationships
+# (beyond just in carefully conducted randomized trials). A major concern
+# for observational data is whether the true associations are being
+# distorted by other factors that may be the actual determinants of the
+# observed relationship between two factors. Such other factors may
+# confound the relationship being studied.
+
+# Randomized trials in scientific experiments are considered the gold standard
+# for evidence-based research. Such trials, sometimes called A/B tests, are
+# commonly undertaken to compare the effect of a treatment (e.g., two different
+# forms of a Web page). By controlling who receives a new intervention and who
+# receives a control (or standard treatment), the investigator ensures that, on
+# average, all other factors are balanced between the two groups. This allows them
+# to conclude that if there are differences in the outcomes measured at the end of
+# the trial, they can be attributed to the application of the treatment. (It’s
+# worth noting that randomized trials can also have confounding if subjects don’t
+# comply with treatments or are lost on follow-up.)
+
+
+# Let’s consider an example of confounding using observational data on average teacher salaries (in 2010) and average total SAT scores for each of the 50 United States. The SAT (Scholastic Aptitude Test) is a high-stakes exam used for entry into college. Are higher teacher salaries associated with better outcomes on the test at the state level? If so, should we adjust salaries to improve test performance?
+sat_2010 <- SAT_2010 |> 
+    mutate(salary = salary / 1000)
+
+sat_plot <- sat_2010 |> 
+    ggplot(mapping = aes(x = salary, y = total)) +
+    geom_point() +
+    geom_smooth(method = 'lm', formula = y ~ x) +
+    ylab('Average total score on the SAT') +
+    xlab('Average teacher salary (thousands of USD')
+
+sat_plot
+
+sat_mod1 <- lm(total ~ salary, data = sat_2010)
+broom::tidy(sat_mod1)
+
+# Lurking in the background, however, is another important factor. The percentage of students who take the SAT in each state varies dramatically (from 3% to 93% in 2010). We can create a variable called SAT_grp that divides the states into two groups.
+sat_2010 |> 
+    skim(sat_pct)
+
+sat_2010 |> 
+    ggplot(mapping = aes(x = sat_pct)) +
+    geom_histogram(binwidth = 5, alpha = 0.5, color = 'black', fill='steelblue')
+
+sat_2010 <- sat_2010 |> 
+    mutate(sat_grp = if_else(sat_pct <= 27, 'low', 'high'))
+
+sat_2010 |> 
+    group_by(sat_grp) |> 
+    count()
+
+# never seen this operator before: %+%
+# might be of ggplots definition
+sat_plot %+% sat_2010 +
+    aes(color = sat_grp) +
+    scale_color_brewer("% taking\nthe SAT", palette = "Set2")
+
+sat_2010 |> 
+    ggplot(mapping = aes(x = salary, y = total, color = sat_grp)) +
+    geom_point() +
+    geom_smooth(method = 'lm', formula = y ~ x) +
+    geom_smooth(mapping = aes(color = 'No group'), method = 'lm', formula = y ~ x) +
+    ylab('Average total score on the SAT') +
+    xlab('Average teacher salary (thousands of USD)') +
+    scale_color_brewer("% taking\nthe SAT", palette = "Set2")
+# simpsons paradox can be demosntrated here in this plot:
+#  * Among states with a low percentage taking the SAT, teacher salaries and SAT scores are positively associated.
+#  * Among states with a high percentage taking the SAT, teacher salaries and SAT scores are positively associated
+#  * Among all states, salaries and SAT scores are negatively associated.
+# Addressing confounding is straightforward if the confounding variables are measured.
+# Stratification is one approach (as seen above). 
+
+
+#  Using techniques developed in Section 7.5, we can derive the coefficients of the linear model fit to the two separate groups.
+sat_2010 |> 
+    group_by(sat_grp) |> 
+    group_modify(~broom::tidy(lm(total ~ salary, data = .x)))
+
+#  Multiple regression is another technique. Let’s add the sat_pct variable as an additional predictor into the regression model.
+sat_mod2 <- lm(total ~ salary + sat_pct, data = sat_2010)
+broom::tidy(sat_mod2)
+
+#  We now see that the slope for Salary is positive and statistically significant when we control for sat_pct. This is consistent with the results when the model was stratified by SAT_grp.
+
+# We still can’t really conclude that teacher salaries cause improvements in SAT scores. However, the associations that we observe after accounting for the confounding are likely more reliable than those that do not take those factors into account.
+
+
+
+# 9.7 The perils of p-values
+# We close with a reminder of the perils of null hypothesis statistical testing. Recall that a p-value is defined as the probability of seeing a sample statistic as extreme (or more extreme) than the one that was observed if it were really the case that patterns in the data are a result of random chance. This hypothesis, that only randomness is in play, is called the null hypothesis.
